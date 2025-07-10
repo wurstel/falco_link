@@ -19,21 +19,22 @@ jobs:
       # OCI 아티팩트 이름을 원하는 대로 변경하세요
       # 예: ghcr.io/your-username/your-repo/falco-rules:main
       OCI_ARTIFACT_NAME: falco-rules
+      # 브랜치명에서 슬래시를 하이픈으로 변경하여 OCI 태그 호환성 확보
       OCI_ARTIFACT_VERSION: ${{ github.ref_name }}
 
     steps:
 
       - name: Checkout Falcoctl Repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: falcosecurity/falcoctl
           ref: main
           path: tools/falcoctl
 
       - name: Setup Golang
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
-          go-version: '^1.20'
+          go-version: '^1.21'
           cache-dependency-path: tools/falcoctl/go.sum
 
       - name: Build falcoctl
@@ -41,17 +42,53 @@ jobs:
         working-directory: tools/falcoctl
 
       - name: Checkout Rules Repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           path: rules
 
+      - name: Verify Rules File Exists
+        run: |
+          if [ ! -f "rules/${RULESET_FILE}" ]; then
+            echo "❌ Error: Rules file 'rules/${RULESET_FILE}' not found!"
+            echo "Available files in rules directory:"
+            ls -la rules/
+            exit 1
+          fi
+          echo "✅ Rules file found: rules/${RULESET_FILE}"
+
+      - name: Normalize OCI Tag
+        run: |
+          # OCI 태그에서 허용되지 않는 문자들을 하이픈으로 변경
+          NORMALIZED_VERSION=$(echo "${OCI_ARTIFACT_VERSION}" | sed 's/[^a-zA-Z0-9._-]/-/g')
+          echo "NORMALIZED_OCI_VERSION=${NORMALIZED_VERSION}" >> $GITHUB_ENV
+          echo "Original version: ${OCI_ARTIFACT_VERSION}"
+          echo "Normalized version: ${NORMALIZED_VERSION}"
+
       - name: Upload OCI artifacts to GitHub packages
         run: |
-             tools/falcoctl/falcoctl registry push \
-             --config /dev/null \
-             --type rulesfile \
-             --version ${OCI_ARTIFACT_VERSION} \
-             ${OCI_REGISTRY}/${GITHUB_REPOSITORY}/${OCI_ARTIFACT_NAME}:${OCI_ARTIFACT_VERSION} \
-             rules/${RULESET_FILE}             
+          echo "🚀 Starting OCI artifact upload..."
+          echo "Registry: ${OCI_REGISTRY}"
+          echo "Repository: ${GITHUB_REPOSITORY}"
+          echo "Artifact Name: ${OCI_ARTIFACT_NAME}"
+          echo "Original Version: ${OCI_ARTIFACT_VERSION}"
+          echo "Normalized Version: ${NORMALIZED_OCI_VERSION}"
+          echo "Rules File: rules/${RULESET_FILE}"
+          echo ""
+          
+          # Check if falcoctl binary exists and is executable
+          if [ ! -x "tools/falcoctl/falcoctl" ]; then
+            echo "❌ Error: falcoctl binary not found or not executable"
+            exit 1
+          fi
+          
+          # Push the artifact with normalized version
+          tools/falcoctl/falcoctl registry push \
+            --config /dev/null \
+            --type rulesfile \
+            --version ${NORMALIZED_OCI_VERSION} \
+            ${OCI_REGISTRY}/${GITHUB_REPOSITORY}/${OCI_ARTIFACT_NAME}:${NORMALIZED_OCI_VERSION} \
+            rules/${RULESET_FILE}
+          
+          echo "✅ Successfully uploaded OCI artifact!"
         env:
           FALCOCTL_REGISTRY_AUTH_BASIC: ${{ env.OCI_REGISTRY }},${{ github.repository_owner }},${{ secrets.GITHUB_TOKEN }}
