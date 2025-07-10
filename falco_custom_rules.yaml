@@ -1,0 +1,15 @@
+# 허용된 사용자 리스트
+- list: my_allowed_users
+  items: [rudylernen]
+
+# 현재 사용자가 허용된 사용자인지 확인하는 매크로
+- macro: my_user_not_allowed
+  condition: not user.name in (my_allowed_users)
+
+# 컨테이너(혹은 pod)에서 shell이 실행되고, user가 허용되지 않은 경우 경고
+- rule: My Unauthorized Shell In Pod
+  desc: Detect shell execution in pod by non-allowed user
+  condition: spawn_process and proc.name in (bash, sh, zsh, ash, csh, tcsh, dash, ksh) and my_user_not_allowed
+  output: "[Falco Custom] Unauthorized shell execution detected! user=%user.name shell=%proc.name pod=%k8s.pod.name ns=%k8s.ns.name command=%proc.cmdline container=%container.id image=%container.image.repository"
+  priority: WARNING
+  tags: [custom, shell, user, k8s]
